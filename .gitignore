@@ -1,0 +1,16 @@
+# Gradle
+.gradle/
+build/
+app/build/
+
+# Local SDK path — machine-specific
+local.properties
+
+# Heap dumps
+*.hprof
+
+# IDE caches (auto-regenerated)
+.idea/caches/
+
+# IntelliJ module files (auto-generated)
+*.iml
