@@ -14,12 +14,15 @@ import com.marianne.smartplanner.viewmodel.AppScreen
 import com.marianne.smartplanner.viewmodel.PlannerViewModel
 
 class MainActivity : ComponentActivity() {
+
+    private lateinit var vm: PlannerViewModel
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
             SmartPlannerTheme {
-                val vm: PlannerViewModel = viewModel()
+                vm = viewModel()
                 val screen by vm.screen.collectAsStateWithLifecycle()
                 when (screen) {
                     AppScreen.PLANNER  -> PlannerScreen(vm)
@@ -27,5 +30,10 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (::vm.isInitialized) vm.refreshEntry()
     }
 }

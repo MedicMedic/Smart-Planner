@@ -41,6 +41,10 @@ android {
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.10"
     }
+
+    lint {
+        disable += "RestrictedApi"
+    }
 }
 
 dependencies {
@@ -60,6 +64,7 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended")
 
     implementation("com.google.code.gson:gson:2.11.0")
+    implementation("androidx.glance:glance-appwidget:1.1.0")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")

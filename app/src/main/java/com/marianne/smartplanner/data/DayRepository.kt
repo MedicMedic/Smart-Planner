@@ -2,14 +2,26 @@ package com.marianne.smartplanner.data
 
 import android.content.Context
 import com.google.gson.Gson
+import androidx.glance.appwidget.updateAll
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
-class DayRepository(context: Context) {
+class DayRepository(private val context: Context) {
 
     private val prefs = context.getSharedPreferences("day_entries", Context.MODE_PRIVATE)
-    private val gson = Gson()
+    private val gson  = Gson()
+    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
-    fun save(entry: DayEntry) {
+    fun save(entry: DayEntry, updateChecklist: Boolean = false, updateGoals: Boolean = false) {
         prefs.edit().putString(entry.date, gson.toJson(entry)).apply()
+        if (updateChecklist || updateGoals) {
+            scope.launch {
+                if (updateChecklist) com.marianne.smartplanner.widget.ChecklistWidget().updateAll(context)
+                if (updateGoals)     com.marianne.smartplanner.widget.GoalsWidget().updateAll(context)
+            }
+        }
     }
 
     fun load(date: String): DayEntry? {
@@ -20,5 +32,4 @@ class DayRepository(context: Context) {
             null
         }
     }
-
 }

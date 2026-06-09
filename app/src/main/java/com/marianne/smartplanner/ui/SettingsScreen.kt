@@ -1,9 +1,12 @@
 package com.marianne.smartplanner.ui
 
 import android.Manifest
+import android.app.AlarmManager
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -410,12 +413,60 @@ private fun RemindersTab(
     onEditTime: (Int) -> Unit,
     onRemoveTime: (Int) -> Unit
 ) {
-    val c = LocalAppColors.current
+    val c       = LocalAppColors.current
+    val context = LocalContext.current
+    val needsExactAlarmPermission = remember {
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            !(context.getSystemService(AlarmManager::class.java)?.canScheduleExactAlarms() ?: true)
+    }
+
     LazyColumn(
         modifier       = Modifier.fillMaxSize().padding(horizontal = 16.dp),
         contentPadding = PaddingValues(top = 16.dp, bottom = 96.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
+        if (needsExactAlarmPermission) {
+            item {
+                Card(
+                    modifier  = Modifier.fillMaxWidth(),
+                    shape     = RoundedCornerShape(12.dp),
+                    colors    = CardDefaults.cardColors(containerColor = Color(0xFFFFF3CD)),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+                ) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment     = Alignment.CenterVertically
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                "Exact alarm permission needed",
+                                fontSize   = 14.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color      = Color(0xFF856404)
+                            )
+                            Text(
+                                "Android 12+ requires permission for exact alarms. Grant it so reminders fire on time.",
+                                fontSize = 12.sp,
+                                color    = Color(0xFF856404)
+                            )
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                            Button(
+                                onClick = {
+                                    context.startActivity(
+                                        Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM)
+                                    )
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF856404))
+                            ) { Text("Grant", color = Color.White, fontSize = 12.sp) }
+                        }
+                    }
+                }
+            }
+        }
+
         item {
             Card(
                 modifier  = Modifier.fillMaxWidth(),

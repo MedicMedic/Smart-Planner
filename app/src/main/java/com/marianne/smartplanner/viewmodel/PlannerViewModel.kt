@@ -254,7 +254,7 @@ class PlannerViewModel(application: Application) : AndroidViewModel(application)
 
     // ── Routine checks ────────────────────────────────────────────────────────
 
-    fun toggleRoutineTask(taskId: Int) = update { entry ->
+    fun toggleRoutineTask(taskId: Int) = update(updateChecklist = true) { entry ->
         val checks = entry.routineChecks.toMutableMap()
         val times  = entry.routineCheckTimes.toMutableMap()
         val checked = !(checks[taskId] ?: false)
@@ -285,7 +285,7 @@ class PlannerViewModel(application: Application) : AndroidViewModel(application)
         it.copy(todayGoals = it.todayGoals.map { g -> if (g.id == id) g.copy(name = name) else g })
     }
 
-    fun toggleGoal(id: Int) = update {
+    fun toggleGoal(id: Int) = update(updateGoals = true) {
         it.copy(todayGoals = it.todayGoals.map { g ->
             if (g.id == id) g.copy(
                 checked     = !g.checked,
@@ -294,13 +294,13 @@ class PlannerViewModel(application: Application) : AndroidViewModel(application)
         })
     }
 
-    fun deleteGoal(id: Int) = update {
+    fun deleteGoal(id: Int) = update(updateGoals = true) {
         it.copy(todayGoals = it.todayGoals.filter { g -> g.id != id })
     }
 
     // ── Time edits ────────────────────────────────────────────────────────────
 
-    fun updateRoutineTaskTime(taskId: Int, time: String) = update { entry ->
+    fun updateRoutineTaskTime(taskId: Int, time: String) = update(updateChecklist = true) { entry ->
         entry.copy(routineCheckTimes = entry.routineCheckTimes.toMutableMap().also { it[taskId] = time })
     }
 
@@ -308,7 +308,7 @@ class PlannerViewModel(application: Application) : AndroidViewModel(application)
         entry.copy(weeklyCheckTimes = entry.weeklyCheckTimes.toMutableMap().also { it[taskId] = time })
     }
 
-    fun updateGoalTime(goalId: Int, time: String) = update {
+    fun updateGoalTime(goalId: Int, time: String) = update(updateGoals = true) {
         it.copy(todayGoals = it.todayGoals.map { g -> if (g.id == goalId) g.copy(completedAt = time) else g })
     }
 
@@ -319,12 +319,20 @@ class PlannerViewModel(application: Application) : AndroidViewModel(application)
 
     // ── Internal ──────────────────────────────────────────────────────────────
 
+    fun refreshEntry() {
+        _entry.value = entryFor(_currentDate.value)
+    }
+
     private fun entryFor(date: LocalDate): DayEntry =
         dayRepo.load(date.format(dateFmt)) ?: DayEntry(date = date.format(dateFmt))
 
-    private fun update(transform: (DayEntry) -> DayEntry) {
+    private fun update(
+        updateChecklist: Boolean = false,
+        updateGoals: Boolean = false,
+        transform: (DayEntry) -> DayEntry
+    ) {
         _entry.value = transform(_entry.value)
-        dayRepo.save(_entry.value)
+        dayRepo.save(_entry.value, updateChecklist, updateGoals)
     }
 
     private fun nowTime(): String = LocalTime.now().format(timeFmt)

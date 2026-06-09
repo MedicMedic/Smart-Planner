@@ -30,6 +30,7 @@ import com.marianne.smartplanner.ui.components.*
 import com.marianne.smartplanner.ui.theme.LocalAppColors
 import com.marianne.smartplanner.viewmodel.PlannerViewModel
 import java.time.LocalDate
+import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
@@ -542,9 +543,10 @@ fun DatePickerDialog(initialDate: LocalDate, onDateSelected: (LocalDate) -> Unit
 fun TimePickerDialog(title: String, initial: String, onConfirm: (String) -> Unit, onDismiss: () -> Unit) {
     val c     = LocalAppColors.current
     val parts = initial.split(":").mapNotNull { it.toIntOrNull() }
+    val now   = remember { LocalTime.now() }
     val state = rememberTimePickerState(
-        initialHour   = parts.getOrElse(0) { 7 },
-        initialMinute = parts.getOrElse(1) { 0 },
+        initialHour   = parts.getOrElse(0) { now.hour },
+        initialMinute = parts.getOrElse(1) { now.minute },
         is24Hour      = true
     )
     AlertDialog(
