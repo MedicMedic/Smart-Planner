@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="widget_pink">#FFD81B60</color>
+    <color name="widget_bg">#FFFFFDF5</color>
+    <color name="widget_text_main">#FF2C2C2C</color>
+    <color name="widget_text_sub">#FF6D6D6D</color>
+    <color name="widget_pink_container">#FFFCE4EC</color>
+</resources>
