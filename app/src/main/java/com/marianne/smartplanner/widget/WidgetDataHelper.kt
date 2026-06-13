@@ -16,6 +16,12 @@ object WidgetDataHelper {
     private val timeFmt = DateTimeFormatter.ofPattern("HH:mm")
     private val gson = Gson()
 
+    // Widget taps fire independent ActionCallbacks that can run concurrently on
+    // different threads. Without this lock, two quick taps both read the entry
+    // before either writes, and the second save clobbers the first — so a check
+    // is silently lost. Serialize every read-modify-write of the day entry.
+    private val entryLock = Any()
+
     fun todayKey(): String = LocalDate.now().format(dateFmt)
     private fun nowTime(): String = LocalTime.now().format(timeFmt)
 
@@ -31,8 +37,13 @@ object WidgetDataHelper {
     }
 
     fun saveEntry(context: Context, entry: DayEntry) {
+        // commit() (synchronous), NOT apply(): widget toggles run in a background
+        // process the OS may freeze/kill the instant the click handler returns.
+        // apply()'s async disk flush can be lost in that window, silently dropping
+        // a check ("it was checked, then it wasn't"). commit() forces the write to
+        // disk before we return, while still inside the action's keep-alive window.
         context.getSharedPreferences("day_entries", Context.MODE_PRIVATE)
-            .edit().putString(entry.date, gson.toJson(entry)).apply()
+            .edit().putString(entry.date, gson.toJson(entry)).commit()
     }
 
     fun loadRoutine(context: Context): List<RoutineTaskDef> {
@@ -47,34 +58,29 @@ object WidgetDataHelper {
     }
 
     fun toggleRoutineTask(context: Context, taskId: Int) {
-        val entry = loadEntry(context)
-        val checks = entry.routineChecks.toMutableMap()
-        val times = entry.routineCheckTimes.toMutableMap()
-        val nowChecked = !(checks[taskId] ?: false)
-        checks[taskId] = nowChecked
-        if (nowChecked) times[taskId] = nowTime() else times.remove(taskId)
-        saveEntry(context, entry.copy(routineChecks = checks, routineCheckTimes = times))
+        synchronized(entryLock) {
+            val entry = loadEntry(context)
+            val checks = entry.routineChecks.toMutableMap()
+            val times = entry.routineCheckTimes.toMutableMap()
+            val nowChecked = !(checks[taskId] ?: false)
+            checks[taskId] = nowChecked
+            if (nowChecked) times[taskId] = nowTime() else times.remove(taskId)
+            saveEntry(context, entry.copy(routineChecks = checks, routineCheckTimes = times))
+        }
     }
-
-    fun setSyncing(context: Context, key: String, value: Boolean) {
-        context.getSharedPreferences("widget_ui", Context.MODE_PRIVATE)
-            .edit().putBoolean(key, value).apply()
-    }
-
-    fun isSyncing(context: Context, key: String): Boolean =
-        context.getSharedPreferences("widget_ui", Context.MODE_PRIVATE)
-            .getBoolean(key, false)
 
     fun toggleGoal(context: Context, goalId: Int) {
-        val entry = loadEntry(context)
-        val time = nowTime()
-        saveEntry(context, entry.copy(
-            todayGoals = entry.todayGoals.map { g ->
-                if (g.id == goalId) {
-                    val willCheck = !g.checked
-                    g.copy(checked = willCheck, completedAt = if (willCheck) time else null)
-                } else g
-            }
-        ))
+        synchronized(entryLock) {
+            val entry = loadEntry(context)
+            val time = nowTime()
+            saveEntry(context, entry.copy(
+                todayGoals = entry.todayGoals.map { g ->
+                    if (g.id == goalId) {
+                        val willCheck = !g.checked
+                        g.copy(checked = willCheck, completedAt = if (willCheck) time else null)
+                    } else g
+                }
+            ))
+        }
     }
 }

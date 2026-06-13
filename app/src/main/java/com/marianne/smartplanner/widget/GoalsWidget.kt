@@ -21,13 +21,8 @@ import androidx.glance.appwidget.action.actionRunCallback
 import androidx.glance.appwidget.lazy.LazyColumn
 import androidx.glance.appwidget.lazy.items
 import androidx.glance.appwidget.provideContent
-import androidx.glance.appwidget.CircularProgressIndicator
-import androidx.glance.appwidget.updateAll
 import androidx.glance.background
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
+import androidx.glance.currentState
 import androidx.glance.layout.*
 import androidx.glance.text.FontStyle
 import androidx.glance.text.FontWeight
@@ -41,8 +36,6 @@ import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
-private const val KEY_SYNC = "sync_goals"
-
 @Composable
 private fun widgetColor(@ColorRes resId: Int): ColorProvider =
     ColorProvider(Color(LocalContext.current.getColor(resId)))
@@ -54,21 +47,15 @@ private val wSub: ColorProvider @Composable get() = widgetColor(R.color.widget_t
 class GoalsWidget : GlanceAppWidget() {
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
-        val entry     = WidgetDataHelper.loadEntry(context)
-        val goals     = entry.todayGoals
-        val done      = goals.count { it.checked }
-        val isSyncing = WidgetDataHelper.isSyncing(context, KEY_SYNC)
-        if (isSyncing) {
-            CoroutineScope(Dispatchers.IO).launch {
-                delay(100)
-                WidgetDataHelper.setSyncing(context, KEY_SYNC, false)
-                GoalsWidget().updateAll(context)
-            }
-        }
-        val dateLabel = LocalDate.now()
-            .format(DateTimeFormatter.ofPattern("d MMM", Locale.ENGLISH))
-
         provideContent {
+            // See ChecklistWidget: depend on the managed-state revision and re-read
+            // inside the composition so toggles reliably repaint the final state.
+            currentState(WidgetRefresher.REV_KEY)
+            val entry     = WidgetDataHelper.loadEntry(context)
+            val goals     = entry.todayGoals
+            val done      = goals.count { it.checked }
+            val dateLabel = LocalDate.now()
+                .format(DateTimeFormatter.ofPattern("d MMM", Locale.ENGLISH))
             val openApp    = actionRunCallback<OpenAppAction>()
             val syncAction = actionRunCallback<SyncGoalsAction>()
             Column(
@@ -82,8 +69,7 @@ class GoalsWidget : GlanceAppWidget() {
                     title      = "Today's Goals",
                     badge      = if (goals.isEmpty()) "" else "$done/${goals.size}",
                     date       = dateLabel,
-                    syncAction = syncAction,
-                    isSyncing  = isSyncing
+                    syncAction = syncAction
                 )
                 LazyColumn(modifier = GlanceModifier.defaultWeight().fillMaxWidth()) {
                     if (goals.isEmpty()) {
@@ -101,7 +87,13 @@ class GoalsWidget : GlanceAppWidget() {
                             )
                         }
                     } else {
-                        items(goals, itemId = { it.id.toLong() }) { goal ->
+                        // itemId encodes the checked state so toggling forces the
+                        // list adapter to re-bind the row instead of showing a
+                        // stale cached one.
+                        items(
+                            items  = goals,
+                            itemId = { (it.id.toLong() shl 1) or (if (it.checked) 1L else 0L) }
+                        ) { goal ->
                             GoalRow(goal = goal)
                         }
                     }
@@ -189,7 +181,7 @@ class ToggleGoalAction : ActionCallback {
     ) {
         val goalId = parameters[GOAL_ID] ?: return
         WidgetDataHelper.toggleGoal(context, goalId)
-        GoalsWidget().updateAll(context)
+        WidgetRefresher.bumpGoals(context, glanceId)
     }
 }
 
@@ -199,7 +191,6 @@ class SyncGoalsAction : ActionCallback {
         glanceId: GlanceId,
         parameters: ActionParameters
     ) {
-        WidgetDataHelper.setSyncing(context, KEY_SYNC, true)
-        GoalsWidget().updateAll(context)
+        WidgetRefresher.bumpGoals(context, glanceId)
     }
 }

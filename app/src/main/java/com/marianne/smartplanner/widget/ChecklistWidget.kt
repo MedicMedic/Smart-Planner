@@ -22,13 +22,8 @@ import androidx.glance.appwidget.action.actionRunCallback
 import androidx.glance.appwidget.lazy.LazyColumn
 import androidx.glance.appwidget.lazy.items
 import androidx.glance.appwidget.provideContent
-import androidx.glance.appwidget.CircularProgressIndicator
-import androidx.glance.appwidget.updateAll
 import androidx.glance.background
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
+import androidx.glance.currentState
 import androidx.glance.layout.*
 import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
@@ -41,8 +36,6 @@ import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
-private const val KEY_SYNC = "sync_checklist"
-
 @Composable
 private fun widgetColor(@ColorRes resId: Int): ColorProvider =
     ColorProvider(Color(LocalContext.current.getColor(resId)))
@@ -54,23 +47,19 @@ private val wSub: ColorProvider @Composable get() = widgetColor(R.color.widget_t
 class ChecklistWidget : GlanceAppWidget() {
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
-        val entry     = WidgetDataHelper.loadEntry(context)
-        val routine   = WidgetDataHelper.loadRoutine(context)
-        val groups    = routine.sortedBy { it.order }.map { it.group }.distinct()
-        val grouped   = routine.groupBy { it.group }
-        val done      = routine.count { entry.isRoutineTaskChecked(it.id) }
-        val isSyncing = WidgetDataHelper.isSyncing(context, KEY_SYNC)
-        if (isSyncing) {
-            CoroutineScope(Dispatchers.IO).launch {
-                delay(100)
-                WidgetDataHelper.setSyncing(context, KEY_SYNC, false)
-                ChecklistWidget().updateAll(context)
-            }
-        }
-        val dateLabel = LocalDate.now()
-            .format(DateTimeFormatter.ofPattern("d MMM", Locale.ENGLISH))
-
         provideContent {
+            // Depend on the managed-state revision so a toggle's updateAppWidgetState
+            // reliably recomposes us; re-read SharedPreferences inside the composition
+            // so the render always reflects the latest write (not a stale value
+            // captured once at session start).
+            currentState(WidgetRefresher.REV_KEY)
+            val entry     = WidgetDataHelper.loadEntry(context)
+            val routine   = WidgetDataHelper.loadRoutine(context)
+            val groups    = routine.sortedBy { it.order }.map { it.group }.distinct()
+            val grouped   = routine.groupBy { it.group }
+            val done      = routine.count { entry.isRoutineTaskChecked(it.id) }
+            val dateLabel = LocalDate.now()
+                .format(DateTimeFormatter.ofPattern("d MMM", Locale.ENGLISH))
             val openApp    = actionRunCallback<OpenAppAction>()
             val syncAction = actionRunCallback<SyncChecklistAction>()
             Column(
@@ -84,8 +73,7 @@ class ChecklistWidget : GlanceAppWidget() {
                     title      = "Daily Routine",
                     badge      = "$done/${routine.size}",
                     date       = dateLabel,
-                    syncAction = syncAction,
-                    isSyncing  = isSyncing
+                    syncAction = syncAction
                 )
                 LazyColumn(modifier = GlanceModifier.defaultWeight().fillMaxWidth()) {
                     groups.forEachIndexed { groupIdx, group ->
@@ -105,7 +93,15 @@ class ChecklistWidget : GlanceAppWidget() {
                                         .clickable(openApp)
                                 )
                             }
-                            items(tasks, itemId = { it.id.toLong() }) { task ->
+                            // itemId encodes the checked state: changing it when a
+                            // task is toggled forces the RemoteViews list adapter to
+                            // re-bind that row instead of serving a stale cached one
+                            // (the reason checks "didn't show until Sync").
+                            items(
+                                items  = tasks,
+                                itemId = { (it.id.toLong() shl 1) or
+                                           (if (entry.isRoutineTaskChecked(it.id)) 1L else 0L) }
+                            ) { task ->
                                 ChecklistTaskRow(
                                     task    = task,
                                     checked = entry.isRoutineTaskChecked(task.id),
@@ -170,7 +166,6 @@ internal fun WidgetHeader(
     badge: String,
     date: String,
     syncAction: Action,
-    isSyncing: Boolean,
     modifier: GlanceModifier = GlanceModifier
 ) {
     val openApp = actionRunCallback<OpenAppAction>()
@@ -189,18 +184,14 @@ internal fun WidgetHeader(
             modifier = GlanceModifier.clickable(openApp)
         )
         Spacer(GlanceModifier.width(8.dp))
-        if (isSyncing) {
-            CircularProgressIndicator(
-                modifier = GlanceModifier.size(20.dp),
-                color    = wPink
-            )
-        } else {
-            Text(
-                text     = "↻",
-                style    = TextStyle(color = wPink, fontSize = 20.sp, fontWeight = FontWeight.Bold),
-                modifier = GlanceModifier.clickable(syncAction)
-            )
-        }
+        // Plain manual-refresh button. (No spinner state: a "syncing" flag that
+        // gets reset by deferred work can stick forever when the OS freezes the
+        // app before the reset runs.)
+        Text(
+            text     = "↻",
+            style    = TextStyle(color = wPink, fontSize = 20.sp, fontWeight = FontWeight.Bold),
+            modifier = GlanceModifier.clickable(syncAction)
+        )
     }
 }
 
@@ -220,7 +211,7 @@ class ToggleRoutineTaskAction : ActionCallback {
     ) {
         val taskId = parameters[TASK_ID] ?: return
         WidgetDataHelper.toggleRoutineTask(context, taskId)
-        ChecklistWidget().updateAll(context)
+        WidgetRefresher.bumpChecklist(context, glanceId)
     }
 }
 
@@ -230,7 +221,6 @@ class SyncChecklistAction : ActionCallback {
         glanceId: GlanceId,
         parameters: ActionParameters
     ) {
-        WidgetDataHelper.setSyncing(context, KEY_SYNC, true)
-        ChecklistWidget().updateAll(context)
+        WidgetRefresher.bumpChecklist(context, glanceId)
     }
 }
