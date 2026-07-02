@@ -14,3 +14,9 @@ local.properties
 
 # IntelliJ module files (auto-generated)
 *.iml
+
+# release signing key — never commit
+smartplannerkey.jks
+*.jks
+*.keystore
+*.hprof
