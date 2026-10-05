@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.marianne.smartplanner.NotificationScheduler
 import com.marianne.smartplanner.data.RoutineTaskDef
 import com.marianne.smartplanner.data.WeeklyTaskDef
 import com.marianne.smartplanner.ui.theme.LocalAppColors
@@ -493,6 +494,53 @@ private fun RemindersTab(
         }
 
         if (enabled) {
+            item {
+                var autoOpen by remember {
+                    mutableStateOf(NotificationScheduler.isAutoOpen(context) && Settings.canDrawOverlays(context))
+                }
+                // Re-read after returning from the system permission screen.
+                val lifecycleOwner = context as androidx.lifecycle.LifecycleOwner
+                DisposableEffect(lifecycleOwner) {
+                    val obs = androidx.lifecycle.LifecycleEventObserver { _, e ->
+                        if (e == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                            autoOpen = NotificationScheduler.isAutoOpen(context) && Settings.canDrawOverlays(context)
+                        }
+                    }
+                    lifecycleOwner.lifecycle.addObserver(obs)
+                    onDispose { lifecycleOwner.lifecycle.removeObserver(obs) }
+                }
+                Card(
+                    modifier  = Modifier.fillMaxWidth(),
+                    shape     = RoundedCornerShape(12.dp),
+                    colors    = CardDefaults.cardColors(containerColor = c.cardBg),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+                ) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment     = Alignment.CenterVertically
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Open app automatically", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = c.textMain)
+                            Text("Launch the planner at reminder time. Needs \"Display over other apps\".", fontSize = 12.sp, color = c.textSub)
+                        }
+                        Switch(
+                            checked = autoOpen,
+                            onCheckedChange = { on ->
+                                NotificationScheduler.setAutoOpen(context, on)
+                                autoOpen = on && Settings.canDrawOverlays(context)
+                                if (on && !Settings.canDrawOverlays(context)) {
+                                    context.startActivity(
+                                        Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}"))
+                                    )
+                                }
+                            },
+                            colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = c.pink)
+                        )
+                    }
+                }
+            }
+
             if (times.isEmpty()) {
                 item {
                     Text(
