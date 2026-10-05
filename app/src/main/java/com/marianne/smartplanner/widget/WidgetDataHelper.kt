@@ -4,9 +4,10 @@ import android.content.Context
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.marianne.smartplanner.data.DEFAULT_ROUTINE_TASKS
+import com.marianne.smartplanner.data.DayBoundary
 import com.marianne.smartplanner.data.DayEntry
 import com.marianne.smartplanner.data.RoutineTaskDef
-import java.time.LocalDate
+import com.marianne.smartplanner.data.WeeklyTaskDef
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 
@@ -22,11 +23,11 @@ object WidgetDataHelper {
     // is silently lost. Serialize every read-modify-write of the day entry.
     private val entryLock = Any()
 
-    fun todayKey(): String = LocalDate.now().format(dateFmt)
+    fun todayKey(context: Context): String = DayBoundary.today(context).format(dateFmt)
     private fun nowTime(): String = LocalTime.now().format(timeFmt)
 
     fun loadEntry(context: Context): DayEntry {
-        val key = todayKey()
+        val key = todayKey(context)
         val json = context.getSharedPreferences("day_entries", Context.MODE_PRIVATE)
             .getString(key, null) ?: return DayEntry(date = key)
         return try {
@@ -54,6 +55,31 @@ object WidgetDataHelper {
             gson.fromJson<List<RoutineTaskDef>>(json, type).ifEmpty { DEFAULT_ROUTINE_TASKS }
         } catch (e: Exception) {
             DEFAULT_ROUTINE_TASKS
+        }
+    }
+
+    /** Weekly tasks scheduled for the current planner day. */
+    fun loadWeeklyForToday(context: Context): List<WeeklyTaskDef> {
+        val json = context.getSharedPreferences("weekly_routine", Context.MODE_PRIVATE)
+            .getString("tasks", null) ?: return emptyList()
+        val dow = DayBoundary.today(context).dayOfWeek.value
+        return try {
+            val type = object : TypeToken<List<WeeklyTaskDef>>() {}.type
+            gson.fromJson<List<WeeklyTaskDef>>(json, type).filter { dow in it.days }
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    fun toggleWeeklyTask(context: Context, taskId: Int) {
+        synchronized(entryLock) {
+            val entry = loadEntry(context)
+            val checks = entry.weeklyChecks.toMutableMap()
+            val times = entry.weeklyCheckTimes.toMutableMap()
+            val nowChecked = !(checks[taskId] ?: false)
+            checks[taskId] = nowChecked
+            if (nowChecked) times[taskId] = nowTime() else times.remove(taskId)
+            saveEntry(context, entry.copy(weeklyChecks = checks, weeklyCheckTimes = times))
         }
     }
 

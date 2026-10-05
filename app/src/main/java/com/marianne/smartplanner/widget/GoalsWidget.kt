@@ -54,7 +54,7 @@ class GoalsWidget : GlanceAppWidget() {
             val entry     = WidgetDataHelper.loadEntry(context)
             val goals     = entry.todayGoals
             val done      = goals.count { it.checked }
-            val dateLabel = LocalDate.now()
+            val dateLabel = com.marianne.smartplanner.data.DayBoundary.today(context)
                 .format(DateTimeFormatter.ofPattern("d MMM", Locale.ENGLISH))
             val openApp    = actionRunCallback<OpenAppAction>()
             val syncAction = actionRunCallback<SyncGoalsAction>()

@@ -29,6 +29,7 @@ import com.marianne.smartplanner.data.*
 import com.marianne.smartplanner.ui.components.*
 import com.marianne.smartplanner.ui.theme.LocalAppColors
 import com.marianne.smartplanner.viewmodel.PlannerViewModel
+import com.marianne.smartplanner.viewmodel.TimeTarget
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
@@ -108,6 +109,20 @@ fun PlannerScreen(vm: PlannerViewModel) {
             initialDate    = date,
             onDateSelected = { vm.goToDate(it); showDatePicker = false },
             onDismiss      = { showDatePicker = false }
+        )
+    }
+
+    val timePrompt by vm.timePrompt.collectAsStateWithLifecycle()
+    timePrompt?.let { p ->
+        TimePickerDialog(
+            title = when (p.target) {
+                TimeTarget.ROUTINE -> routine.find { it.id == p.id }?.name
+                TimeTarget.WEEKLY  -> weeklyTasks.find { it.id == p.id }?.name
+                TimeTarget.GOAL    -> entry.todayGoals.find { it.id == p.id }?.name
+            }?.ifBlank { null } ?: "Time",
+            initial   = vm.promptDefaultTime,
+            onConfirm = vm::confirmTimePrompt,
+            onDismiss = vm::dismissTimePrompt
         )
     }
 

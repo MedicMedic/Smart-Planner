@@ -12,6 +12,9 @@ import java.time.format.DateTimeFormatter
 
 enum class AppScreen { PLANNER, SETTINGS }
 
+enum class TimeTarget { ROUTINE, WEEKLY, GOAL }
+data class TimePrompt(val target: TimeTarget, val id: Int)
+
 class PlannerViewModel(application: Application) : AndroidViewModel(application) {
 
     private val dayRepo     = DayRepository(application)
@@ -84,6 +87,37 @@ class PlannerViewModel(application: Application) : AndroidViewModel(application)
         _entry.value                = entryFor(_currentDate.value)
         if (newEnabled) com.marianne.smartplanner.NotificationScheduler.schedule(getApplication(), newTimes)
         else            com.marianne.smartplanner.NotificationScheduler.cancelAll(getApplication())
+    }
+
+    // ── Day boundary ──────────────────────────────────────────────────────────
+
+    private val _dayEndTime = MutableStateFlow(DayBoundary.get(application))
+    val dayEndTime: StateFlow<String> = _dayEndTime.asStateFlow()
+
+    fun setDayEndTime(time: String) {
+        DayBoundary.set(getApplication(), time)
+        _dayEndTime.value = time
+    }
+
+    private fun isPlannerToday() = _currentDate.value == DayBoundary.today(getApplication())
+
+    // Checking something off on any day other than the current one can't be stamped
+    // with "now", so it gets that day's last minute and the picker opens to adjust it.
+    private val _timePrompt = MutableStateFlow<TimePrompt?>(null)
+    val timePrompt: StateFlow<TimePrompt?> = _timePrompt.asStateFlow()
+
+    val promptDefaultTime: String get() = DayBoundary.lastMinute(getApplication())
+
+    fun dismissTimePrompt() { _timePrompt.value = null }
+
+    fun confirmTimePrompt(time: String) {
+        val p = _timePrompt.value ?: return
+        _timePrompt.value = null
+        when (p.target) {
+            TimeTarget.ROUTINE -> updateRoutineTaskTime(p.id, time)
+            TimeTarget.WEEKLY  -> updateWeeklyTaskTime(p.id, time)
+            TimeTarget.GOAL    -> updateGoalTime(p.id, time)
+        }
     }
 
     // ── Navigation ────────────────────────────────────────────────────────────
@@ -232,10 +266,10 @@ class PlannerViewModel(application: Application) : AndroidViewModel(application)
 
     // ── Date navigation ───────────────────────────────────────────────────────
 
-    private val _currentDate = MutableStateFlow(LocalDate.now())
+    private val _currentDate = MutableStateFlow(DayBoundary.today(application))
     val currentDate: StateFlow<LocalDate> = _currentDate.asStateFlow()
 
-    private val _entry = MutableStateFlow(entryFor(LocalDate.now()))
+    private val _entry = MutableStateFlow(entryFor(DayBoundary.today(application)))
     val entry: StateFlow<DayEntry> = _entry.asStateFlow()
 
     fun goToDate(date: LocalDate) {
@@ -254,24 +288,30 @@ class PlannerViewModel(application: Application) : AndroidViewModel(application)
 
     // ── Routine checks ────────────────────────────────────────────────────────
 
-    fun toggleRoutineTask(taskId: Int) = update(updateChecklist = true) { entry ->
-        val checks = entry.routineChecks.toMutableMap()
-        val times  = entry.routineCheckTimes.toMutableMap()
-        val checked = !(checks[taskId] ?: false)
-        checks[taskId] = checked
-        if (checked) times[taskId] = nowTime() else times.remove(taskId)
-        entry.copy(routineChecks = checks, routineCheckTimes = times)
+    fun toggleRoutineTask(taskId: Int) {
+        update(updateChecklist = true) { entry ->
+            val checks = entry.routineChecks.toMutableMap()
+            val times  = entry.routineCheckTimes.toMutableMap()
+            val checked = !(checks[taskId] ?: false)
+            checks[taskId] = checked
+            if (checked) times[taskId] = stampTime() else times.remove(taskId)
+            entry.copy(routineChecks = checks, routineCheckTimes = times)
+        }
+        promptIfChecked(TimeTarget.ROUTINE, taskId) { it.isRoutineTaskChecked(taskId) }
     }
 
     // ── Weekly checks ─────────────────────────────────────────────────────────
 
-    fun toggleWeeklyTask(taskId: Int) = update { entry ->
-        val checks = entry.weeklyChecks.toMutableMap()
-        val times  = entry.weeklyCheckTimes.toMutableMap()
-        val checked = !(checks[taskId] ?: false)
-        checks[taskId] = checked
-        if (checked) times[taskId] = nowTime() else times.remove(taskId)
-        entry.copy(weeklyChecks = checks, weeklyCheckTimes = times)
+    fun toggleWeeklyTask(taskId: Int) {
+        update { entry ->
+            val checks = entry.weeklyChecks.toMutableMap()
+            val times  = entry.weeklyCheckTimes.toMutableMap()
+            val checked = !(checks[taskId] ?: false)
+            checks[taskId] = checked
+            if (checked) times[taskId] = stampTime() else times.remove(taskId)
+            entry.copy(weeklyChecks = checks, weeklyCheckTimes = times)
+        }
+        promptIfChecked(TimeTarget.WEEKLY, taskId) { it.isWeeklyTaskChecked(taskId) }
     }
 
     // ── Today's goals ─────────────────────────────────────────────────────────
@@ -285,13 +325,16 @@ class PlannerViewModel(application: Application) : AndroidViewModel(application)
         it.copy(todayGoals = it.todayGoals.map { g -> if (g.id == id) g.copy(name = name) else g })
     }
 
-    fun toggleGoal(id: Int) = update(updateGoals = true) {
-        it.copy(todayGoals = it.todayGoals.map { g ->
-            if (g.id == id) g.copy(
-                checked     = !g.checked,
-                completedAt = if (!g.checked) nowTime() else null
-            ) else g
-        })
+    fun toggleGoal(id: Int) {
+        update(updateGoals = true) {
+            it.copy(todayGoals = it.todayGoals.map { g ->
+                if (g.id == id) g.copy(
+                    checked     = !g.checked,
+                    completedAt = if (!g.checked) stampTime() else null
+                ) else g
+            })
+        }
+        promptIfChecked(TimeTarget.GOAL, id) { e -> e.todayGoals.any { it.id == id && it.checked } }
     }
 
     fun deleteGoal(id: Int) = update(updateGoals = true) {
@@ -336,4 +379,11 @@ class PlannerViewModel(application: Application) : AndroidViewModel(application)
     }
 
     private fun nowTime(): String = LocalTime.now().format(timeFmt)
+
+    private fun stampTime(): String =
+        if (isPlannerToday()) nowTime() else DayBoundary.lastMinute(getApplication())
+
+    private fun promptIfChecked(target: TimeTarget, id: Int, isChecked: (DayEntry) -> Boolean) {
+        if (!isPlannerToday() && isChecked(_entry.value)) _timePrompt.value = TimePrompt(target, id)
+    }
 }

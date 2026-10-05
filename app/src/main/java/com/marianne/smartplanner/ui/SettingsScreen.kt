@@ -10,6 +10,7 @@ import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -66,6 +67,9 @@ fun SettingsScreen(vm: PlannerViewModel) {
     var editWeeklyGroupDays      by remember { mutableStateOf<String?>(null) }
     var confirmDeleteWeeklyGroup by remember { mutableStateOf<String?>(null) }
 
+    val dayEndTime by vm.dayEndTime.collectAsStateWithLifecycle()
+    var showDayEndPicker by remember { mutableStateOf(false) }
+
     // Reminder dialog state
     var editReminderIndex by remember { mutableStateOf<Int?>(null) }
     var showAddReminder   by remember { mutableStateOf(false) }
@@ -112,7 +116,7 @@ fun SettingsScreen(vm: PlannerViewModel) {
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             TabRow(selectedTabIndex = selectedTab, containerColor = c.pageBg, contentColor = c.pink) {
-                listOf("Daily", "Weekly", "Reminders", "Backup").forEachIndexed { i, label ->
+                listOf("Daily", "Weekly", "Reminders", "Backup", "General").forEachIndexed { i, label ->
                     Tab(
                         selected = selectedTab == i,
                         onClick  = { selectedTab = i },
@@ -184,6 +188,33 @@ fun SettingsScreen(vm: PlannerViewModel) {
                 // ── Backup ───────────────────────────────────────────────────
                 3 -> BackupTab(vm)
 
+                // ── General ───────────────────────────────────────────────────
+                4 -> Column(Modifier.fillMaxSize().padding(16.dp)) {
+                    Card(
+                        modifier  = Modifier.fillMaxWidth().clickable { showDayEndPicker = true },
+                        shape     = RoundedCornerShape(12.dp),
+                        colors    = CardDefaults.cardColors(containerColor = c.cardBg),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+                    ) {
+                        Row(
+                            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment     = Alignment.CenterVertically
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text("Day ends at", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = c.textMain)
+                                Text(
+                                    "When the next day starts. Anything logged before this still counts as the previous day. " +
+                                        "Checking things off on another day opens the time picker at the last minute of that day.",
+                                    fontSize = 12.sp, color = c.textSub
+                                )
+                            }
+                            Spacer(Modifier.width(12.dp))
+                            Text(dayEndTime, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = c.pink)
+                        }
+                    }
+                }
+
                 // ── Reminders ─────────────────────────────────────────────────
                 else -> RemindersTab(
                     enabled       = notifEnabled,
@@ -208,6 +239,12 @@ fun SettingsScreen(vm: PlannerViewModel) {
                 )
             }
         }
+    }
+
+    if (showDayEndPicker) {
+        TimePickerDialog("Day ends at", dayEndTime,
+            onConfirm = { vm.setDayEndTime(it); showDayEndPicker = false },
+            onDismiss = { showDayEndPicker = false })
     }
 
     // ── Daily dialogs ─────────────────────────────────────────────────────────

@@ -58,7 +58,10 @@ class ChecklistWidget : GlanceAppWidget() {
             val groups    = routine.sortedBy { it.order }.map { it.group }.distinct()
             val grouped   = routine.groupBy { it.group }
             val done      = routine.count { entry.isRoutineTaskChecked(it.id) }
-            val dateLabel = LocalDate.now()
+            val weekly       = WidgetDataHelper.loadWeeklyForToday(context)
+            val weeklyGroups = weekly.sortedBy { it.order }.map { it.group }.distinct()
+            val weeklyGrouped = weekly.groupBy { it.group }
+            val dateLabel = com.marianne.smartplanner.data.DayBoundary.today(context)
                 .format(DateTimeFormatter.ofPattern("d MMM", Locale.ENGLISH))
             val openApp    = actionRunCallback<OpenAppAction>()
             val syncAction = actionRunCallback<SyncChecklistAction>()
@@ -103,10 +106,50 @@ class ChecklistWidget : GlanceAppWidget() {
                                            (if (entry.isRoutineTaskChecked(it.id)) 1L else 0L) }
                             ) { task ->
                                 ChecklistTaskRow(
-                                    task    = task,
+                                    name    = task.name,
                                     checked = entry.isRoutineTaskChecked(task.id),
                                     time    = entry.routineCheckTimes[task.id]
-                                        .takeIf { entry.isRoutineTaskChecked(task.id) }
+                                        .takeIf { entry.isRoutineTaskChecked(task.id) },
+                                    toggleAction = actionRunCallback<ToggleRoutineTaskAction>(
+                                        actionParametersOf(ToggleRoutineTaskAction.TASK_ID to task.id)
+                                    )
+                                )
+                            }
+                        }
+                    }
+
+                    // Weekly tasks for today, below the whole daily routine. Item ids live
+                    // in their own ranges so they never collide with the routine's.
+                    weeklyGroups.forEachIndexed { groupIdx, group ->
+                        val tasks = (weeklyGrouped[group] ?: emptyList()).sortedBy { it.order }
+                        if (tasks.isNotEmpty()) {
+                            item(itemId = -(1000L + groupIdx)) {
+                                Text(
+                                    text     = group.uppercase(),
+                                    style    = TextStyle(
+                                        color      = wPink,
+                                        fontSize   = 18.sp,
+                                        fontWeight = FontWeight.Bold
+                                    ),
+                                    modifier = GlanceModifier
+                                        .fillMaxWidth()
+                                        .padding(top = 10.dp, bottom = 1.dp)
+                                        .clickable(openApp)
+                                )
+                            }
+                            items(
+                                items  = tasks,
+                                itemId = { ((1_000_000L + it.id) shl 1) or
+                                           (if (entry.isWeeklyTaskChecked(it.id)) 1L else 0L) }
+                            ) { task ->
+                                ChecklistTaskRow(
+                                    name    = task.name,
+                                    checked = entry.isWeeklyTaskChecked(task.id),
+                                    time    = entry.weeklyCheckTimes[task.id]
+                                        .takeIf { entry.isWeeklyTaskChecked(task.id) },
+                                    toggleAction = actionRunCallback<ToggleWeeklyTaskAction>(
+                                        actionParametersOf(ToggleWeeklyTaskAction.TASK_ID to task.id)
+                                    )
                                 )
                             }
                         }
@@ -118,10 +161,7 @@ class ChecklistWidget : GlanceAppWidget() {
 }
 
 @Composable
-private fun ChecklistTaskRow(task: RoutineTaskDef, checked: Boolean, time: String?) {
-    val toggleAction = actionRunCallback<ToggleRoutineTaskAction>(
-        actionParametersOf(ToggleRoutineTaskAction.TASK_ID to task.id)
-    )
+private fun ChecklistTaskRow(name: String, checked: Boolean, time: String?, toggleAction: Action) {
     val openApp = actionRunCallback<OpenAppAction>()
     Row(
         modifier = GlanceModifier
@@ -140,7 +180,7 @@ private fun ChecklistTaskRow(task: RoutineTaskDef, checked: Boolean, time: Strin
         )
         Spacer(GlanceModifier.width(6.dp))
         Text(
-            text     = task.name,
+            text     = name,
             style    = TextStyle(
                 color          = if (checked) wSub else wMain,
                 fontSize       = 22.sp,
@@ -211,6 +251,22 @@ class ToggleRoutineTaskAction : ActionCallback {
     ) {
         val taskId = parameters[TASK_ID] ?: return
         WidgetDataHelper.toggleRoutineTask(context, taskId)
+        WidgetRefresher.bumpChecklist(context, glanceId)
+    }
+}
+
+class ToggleWeeklyTaskAction : ActionCallback {
+    companion object {
+        val TASK_ID = ActionParameters.Key<Int>("weeklyTaskId")
+    }
+
+    override suspend fun onAction(
+        context: Context,
+        glanceId: GlanceId,
+        parameters: ActionParameters
+    ) {
+        val taskId = parameters[TASK_ID] ?: return
+        WidgetDataHelper.toggleWeeklyTask(context, taskId)
         WidgetRefresher.bumpChecklist(context, glanceId)
     }
 }
