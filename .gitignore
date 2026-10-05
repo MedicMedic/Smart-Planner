@@ -16,6 +16,7 @@ local.properties
 *.iml
 
 # release signing key — never commit
+keystore.properties
 smartplannerkey.jks
 *.jks
 *.keystore
