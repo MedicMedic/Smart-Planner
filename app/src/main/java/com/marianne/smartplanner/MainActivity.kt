@@ -27,8 +27,9 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
-            SmartPlannerTheme {
-                vm = viewModel()
+            vm = viewModel()
+            val themeId by vm.themeColor.collectAsStateWithLifecycle()
+            SmartPlannerTheme(themeId) {
                 val screen by vm.screen.collectAsStateWithLifecycle()
                 when (screen) {
                     AppScreen.PLANNER  -> PlannerScreen(vm)

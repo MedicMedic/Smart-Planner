@@ -6,6 +6,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.glance.ColorFilter
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
 import androidx.glance.Image
@@ -31,6 +32,7 @@ import androidx.glance.text.TextDecoration
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
 import com.marianne.smartplanner.R
+import com.marianne.smartplanner.ui.theme.ThemeColors
 import com.marianne.smartplanner.data.RoutineTaskDef
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
@@ -40,7 +42,7 @@ import java.util.Locale
 private fun widgetColor(@ColorRes resId: Int): ColorProvider =
     ColorProvider(Color(LocalContext.current.getColor(resId)))
 
-private val wPink: ColorProvider @Composable get() = widgetColor(R.color.widget_pink)
+private val wPink: ColorProvider @Composable get() = ColorProvider(ThemeColors.accent(LocalContext.current))
 private val wMain: ColorProvider @Composable get() = widgetColor(R.color.widget_text_main)
 private val wSub: ColorProvider @Composable get() = widgetColor(R.color.widget_text_sub)
 
@@ -176,7 +178,8 @@ private fun ChecklistTaskRow(name: String, checked: Boolean, time: String?, togg
                 else         R.drawable.ic_widget_cb_unchecked
             ),
             contentDescription = null,
-            modifier           = GlanceModifier.width(28.dp).height(28.dp).clickable(toggleAction)
+            modifier           = GlanceModifier.width(28.dp).height(28.dp).clickable(toggleAction),
+            colorFilter        = ColorFilter.tint(wPink)
         )
         Spacer(GlanceModifier.width(6.dp))
         Text(

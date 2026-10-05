@@ -10,8 +10,15 @@ import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -22,9 +29,17 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -38,9 +53,139 @@ import com.marianne.smartplanner.NotificationScheduler
 import com.marianne.smartplanner.data.RoutineTaskDef
 import com.marianne.smartplanner.data.WeeklyTaskDef
 import com.marianne.smartplanner.ui.theme.LocalAppColors
+import com.marianne.smartplanner.ui.theme.ThemePresets
 import com.marianne.smartplanner.viewmodel.PlannerViewModel
 
 private val DAY_LABELS = listOf("M", "T", "W", "T", "F", "S", "S")
+
+// ── Theme color ───────────────────────────────────────────────────────────────
+
+private const val CUSTOM_SWATCH = "custom"
+private val RAINBOW = listOf(0f, 60f, 120f, 180f, 240f, 300f, 360f).map { Color.hsv(it, 0.85f, 0.8f) }
+
+@Composable
+private fun ThemeColorCard(themeId: String, onSelect: (String) -> Unit) {
+    val c        = LocalAppColors.current
+    val isCustom = ThemePresets.isCustom(themeId)
+
+    // Custom starts from whatever color is active now; the sliders and hex field edit it.
+    val picked = if (isCustom) ThemePresets.customColor(themeId) else ThemePresets.find(themeId).light
+    val hsv    = FloatArray(3).also { android.graphics.Color.colorToHSV(picked.toArgb(), it) }
+    val hue    = hsv[0]
+    val sat    = if (hsv[1] < 0.15f) 0.85f else hsv[1]   // dragging hue on a gray should show color
+    val value  = hsv[2].coerceIn(0.35f, 0.8f)
+    var hexText by remember(themeId) { mutableStateOf("%06X".format(picked.toArgb() and 0xFFFFFF)) }
+
+    Card(
+        modifier  = Modifier.fillMaxWidth(),
+        shape     = RoundedCornerShape(12.dp),
+        colors    = CardDefaults.cardColors(containerColor = c.cardBg),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column {
+                Text("Theme color", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = c.textMain)
+                Text("Pick a preset, or use the rainbow for any color.", fontSize = 12.sp, color = c.textSub)
+            }
+
+            (ThemePresets.all.map { it.id } + CUSTOM_SWATCH).chunked(5).forEach { row ->
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    row.forEach { id ->
+                        val custom = id == CUSTOM_SWATCH
+                        ColorSwatch(
+                            label    = if (custom) "Custom color" else ThemePresets.find(id).label,
+                            color    = if (custom) null else ThemePresets.find(id).light,
+                            brush    = if (custom) Brush.sweepGradient(RAINBOW) else null,
+                            selected = if (custom) isCustom else themeId == id,
+                            onClick  = { onSelect(if (custom) ThemePresets.customId(picked) else id) }
+                        )
+                    }
+                }
+            }
+
+            if (isCustom) {
+                Text("Color", fontSize = 12.sp, color = c.textSub)
+                GradientSlider(
+                    fraction = hue / 360f,
+                    brush    = Brush.horizontalGradient(RAINBOW),
+                    onChange = { onSelect(ThemePresets.customId(Color.hsv((it * 360f).coerceIn(0f, 359.9f), sat, value))) }
+                )
+                Text("Shade", fontSize = 12.sp, color = c.textSub)
+                GradientSlider(
+                    fraction = (value - 0.35f) / 0.45f,
+                    brush    = Brush.horizontalGradient(listOf(Color.hsv(hue, sat, 0.35f), Color.hsv(hue, sat, 0.8f))),
+                    onChange = { onSelect(ThemePresets.customId(Color.hsv(hue, sat, 0.35f + it * 0.45f))) }
+                )
+                OutlinedTextField(
+                    value         = hexText,
+                    onValueChange = { input ->
+                        val clean = input.filter { ch -> ch in "0123456789abcdefABCDEF" }.take(6).uppercase()
+                        hexText = clean
+                        if (clean.length == 6) {
+                            onSelect(ThemePresets.customId(Color(0xFF000000L or clean.toLong(16))))
+                        }
+                    },
+                    label         = { Text("Hex color") },
+                    prefix        = { Text("#") },
+                    singleLine    = true,
+                    supportingText = { Text("Very light colors are darkened so button text stays readable.", fontSize = 11.sp) },
+                    colors        = OutlinedTextFieldDefaults.colors(focusedBorderColor = c.pink, unfocusedBorderColor = c.pinkLight),
+                    modifier      = Modifier.fillMaxWidth()
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ColorSwatch(label: String, color: Color?, brush: Brush?, selected: Boolean, onClick: () -> Unit) {
+    val c = LocalAppColors.current
+    Box(
+        modifier = Modifier
+            .size(44.dp)
+            .clip(CircleShape)
+            .then(if (brush != null) Modifier.background(brush) else Modifier.background(color ?: Color.Gray))
+            .border(if (selected) 3.dp else 0.dp, if (selected) c.textMain else Color.Transparent, CircleShape)
+            .semantics { contentDescription = label }
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        if (selected) Icon(Icons.Default.Check, null, tint = Color.White, modifier = Modifier.size(22.dp))
+    }
+}
+
+@Composable
+private fun GradientSlider(fraction: Float, brush: Brush, onChange: (Float) -> Unit) {
+    val c       = LocalAppColors.current
+    val density = LocalDensity.current
+    var widthPx by remember { mutableFloatStateOf(1f) }
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .height(32.dp)
+            .onSizeChanged { widthPx = it.width.toFloat().coerceAtLeast(1f) }
+            .pointerInput(Unit) { detectTapGestures { onChange((it.x / widthPx).coerceIn(0f, 1f)) } }
+            .pointerInput(Unit) {
+                detectHorizontalDragGestures { change, _ ->
+                    change.consume()
+                    onChange((change.position.x / widthPx).coerceIn(0f, 1f))
+                }
+            }
+    ) {
+        Box(
+            Modifier.align(Alignment.Center).fillMaxWidth().height(14.dp)
+                .clip(RoundedCornerShape(7.dp)).background(brush)
+        )
+        Box(
+            Modifier
+                .align(Alignment.CenterStart)
+                .offset(x = with(density) { (fraction.coerceIn(0f, 1f) * widthPx).toDp() } - 12.dp)
+                .size(24.dp)
+                .background(Color.White, CircleShape)
+                .border(2.dp, c.textMain, CircleShape)
+        )
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -67,6 +212,7 @@ fun SettingsScreen(vm: PlannerViewModel) {
     var editWeeklyGroupDays      by remember { mutableStateOf<String?>(null) }
     var confirmDeleteWeeklyGroup by remember { mutableStateOf<String?>(null) }
 
+    val themeId    by vm.themeColor.collectAsStateWithLifecycle()
     val dayEndTime by vm.dayEndTime.collectAsStateWithLifecycle()
     var showDayEndPicker by remember { mutableStateOf(false) }
 
@@ -189,7 +335,11 @@ fun SettingsScreen(vm: PlannerViewModel) {
                 3 -> BackupTab(vm)
 
                 // ── General ───────────────────────────────────────────────────
-                4 -> Column(Modifier.fillMaxSize().padding(16.dp)) {
+                4 -> Column(
+                    Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    ThemeColorCard(themeId, vm::setThemeColor)
                     Card(
                         modifier  = Modifier.fillMaxWidth().clickable { showDayEndPicker = true },
                         shape     = RoundedCornerShape(12.dp),

@@ -2,7 +2,11 @@ package com.marianne.smartplanner.viewmodel
 
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
 import com.marianne.smartplanner.data.*
+import com.marianne.smartplanner.ui.theme.ThemePresets
+import com.marianne.smartplanner.widget.WidgetRefresher
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -87,6 +91,22 @@ class PlannerViewModel(application: Application) : AndroidViewModel(application)
         _entry.value                = entryFor(_currentDate.value)
         if (newEnabled) com.marianne.smartplanner.NotificationScheduler.schedule(getApplication(), newTimes)
         else            com.marianne.smartplanner.NotificationScheduler.cancelAll(getApplication())
+    }
+
+    // ── Theme color ───────────────────────────────────────────────────────────
+
+    private val _themeColor = MutableStateFlow(ThemePresets.get(application))
+    val themeColor: StateFlow<String> = _themeColor.asStateFlow()
+
+    fun setThemeColor(id: String) {
+        if (id == _themeColor.value) return
+        ThemePresets.set(getApplication(), id)
+        _themeColor.value = id
+        // Widgets read the accent when they render, so ask them to redraw.
+        viewModelScope.launch {
+            WidgetRefresher.refreshChecklist(getApplication())
+            WidgetRefresher.refreshGoals(getApplication())
+        }
     }
 
     // ── Day boundary ──────────────────────────────────────────────────────────
